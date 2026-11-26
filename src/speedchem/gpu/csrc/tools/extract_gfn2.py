@@ -1,7 +1,7 @@
 """Extract the GFN2-xTB parameter tables of tblite, mctc-lib and dftd4 into JSON.
 
-    python native/ksxtb/tools/extract_gfn2.py --tblite SRC/tblite --mctc SRC/mctc-lib \
-        --dftd4 SRC/dftd4 --out src/ksmech/qm/gpu/gfn2_params.json
+    python src/speedchem/gpu/csrc/tools/extract_gfn2.py --tblite SRC/tblite --mctc SRC/mctc-lib \
+        --dftd4 SRC/dftd4 --out src/speedchem/gpu/gfn2_params.json
 
 tblite v0.7.0 pins mctc-lib v0.5.2 and dftd4 v4.2.0 (its subprojects/*.wrap). dftd4's reference
 polarizabilities are DATA statements (`parse_data`); the ALPB, CDS and shift parameters of

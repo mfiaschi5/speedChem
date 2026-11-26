@@ -10,9 +10,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ksmech.qm.gpu.basis import mol_basis
-from tests.test_qm_gpu import CASES, gpu
-from tests.test_qm_gpu_terms import tblite_run
+from speedchem.gpu.basis import mol_basis
+from tests.test_gpu import CASES, gpu
+from tests.test_gpu_terms import tblite_run
 
 
 @pytest.mark.gpu
@@ -21,8 +21,8 @@ from tests.test_qm_gpu_terms import tblite_run
 def test_fock_at_tblite_charges_gives_tblite_orbitals(solvent):
     import torch
 
-    from ksmech.qm.gpu import classical as K
-    from ksmech.qm.gpu import scf as S
+    from speedchem.gpu import classical as K
+    from speedchem.gpu import scf as S
 
     names = list(CASES)
     mols = [CASES[n] for n in names]
@@ -44,7 +44,7 @@ def test_fock_at_tblite_charges_gives_tblite_orbitals(solvent):
 @gpu
 @pytest.mark.parametrize("solvent", [None, "water"])
 def test_scf_lands_on_tblite_energy_and_gradient(solvent):
-    from ksmech.qm.gpu import scf as S
+    from speedchem.gpu import scf as S
 
     names = list(CASES)
     sb = S.SCFBatch([CASES[n] for n in names], solvent is not None, accuracy=1e-6)
@@ -66,7 +66,7 @@ def test_scf_kernels_match_torch_references():
     the open-shell metals' fractional occupations in the batch."""
     import torch
 
-    from ksmech.qm.gpu import scf as S
+    from speedchem.gpu import scf as S
 
     sb = S.SCFBatch(list(CASES.values()), True)
     r = sb.run()
@@ -90,8 +90,8 @@ def test_scf_kernels_match_torch_references():
 def test_scf_gradient_follows_tblite_convention_at_production_accuracy():
     """At accuracy 1 the H0 gradient is contracted with the last input potentials, as tblite's
     is; the gradient then stays within 2e-5 of tblite's at the same accuracy."""
-    from ksmech.qm.geometry import new_calculator
-    from ksmech.qm.gpu import scf as S
+    from speedchem.gpu import scf as S
+    from tests.helpers import new_calculator
 
     names = ["ethanol", "acetone", "acrolein", "chloromethane"]
     sb = S.SCFBatch([CASES[n] for n in names], True)
@@ -111,7 +111,7 @@ def test_a_poisoned_molecule_fails_alone():
     with a status; the rest of the batch reaches the clean batch's results."""
     import torch
 
-    from ksmech.qm.gpu import scf as S
+    from speedchem.gpu import scf as S
 
     names = ["acetone", "benzene", "chloromethane"]
     clean = [CASES[n] for n in names]
@@ -141,7 +141,7 @@ def test_broyden_buffers_equal_the_list_form():
     iterations than one buffer chunk, with molecules dropping out."""
     import torch
 
-    from ksmech.qm.gpu import scf as S
+    from speedchem.gpu import scf as S
 
     gen = torch.Generator(device="cuda").manual_seed(0)
     q0 = torch.randn(5, 40, dtype=torch.float64, device="cuda", generator=gen)
@@ -166,7 +166,7 @@ def test_refined_fp32_orbitals_reach_fp64_eigh():
     follows fp32 noise) are flagged for fp64 eigh."""
     import torch
 
-    from ksmech.qm.gpu import scf as S
+    from speedchem.gpu import scf as S
 
     sb = S.SCFBatch(list(CASES.values()), True)
     r = sb.run()
@@ -206,7 +206,7 @@ def test_broyden_molecules_at_their_own_iterations_equal_each_alone():
     a while) match the list form run on each molecule alone, over more slots than a chunk."""
     import torch
 
-    from ksmech.qm.gpu import scf as S
+    from speedchem.gpu import scf as S
 
     gen = torch.Generator(device="cuda").manual_seed(1)
     b, v, n_it = 5, 30, 16
@@ -239,7 +239,7 @@ def test_broyden_reset_after_nans_gives_finite_steps():
     """A molecule whose history went NaN, restarted by `reset`, steps as a fresh mixer does."""
     import torch
 
-    from ksmech.qm.gpu import scf as S
+    from speedchem.gpu import scf as S
 
     gen = torch.Generator(device="cuda").manual_seed(2)
     q0 = torch.randn(3, 20, dtype=torch.float64, device="cuda", generator=gen)
@@ -262,7 +262,7 @@ def test_broyden_reset_after_nans_gives_finite_steps():
 
 
 def _carry_batch():
-    from ksmech.qm.gpu import scf as S
+    from speedchem.gpu import scf as S
 
     # the fp32 eigensolve of one matrix differs from that of a batch (another solver path), so
     # every phase below keeps two molecules of a kind running together: B twice, C twice
@@ -277,7 +277,7 @@ def test_an_scf_started_beside_one_mid_run_ends_as_alone():
     end with the energy, cycle count and status they reach run alone from the same start."""
     import torch
 
-    from ksmech.qm.gpu import scf as S
+    from speedchem.gpu import scf as S
 
     sb = _carry_batch()
     mask = lambda *ms: torch.tensor([m in ms for m in range(5)], device="cuda")  # noqa: E731
@@ -313,7 +313,7 @@ def test_advance_with_a_carry_returns_early_and_resumes():
     after 19 or 20 cycles), with or without a carry."""
     import torch
 
-    from ksmech.qm.gpu import scf as S
+    from speedchem.gpu import scf as S
 
     organics = [CASES[n] for n in CASES if n not in ("copper_dichloride", "tetrabromoferrate")]
     sb = S.SCFBatch(organics, True)
@@ -343,7 +343,7 @@ def test_fallback_restarts_from_the_guess_within_the_evaluation():
     same evaluation: its result is the guess run's, marked as fell back, the rest untouched."""
     import torch
 
-    from ksmech.qm.gpu import scf as S
+    from speedchem.gpu import scf as S
 
     sb = _carry_batch()
     guess = sb.run()
@@ -371,7 +371,7 @@ def test_the_cycle_limit_holds_per_scf_and_the_fallback_matches_two_runs():
     gives."""
     import torch
 
-    from ksmech.qm.gpu import scf as S
+    from speedchem.gpu import scf as S
 
     sb = _carry_batch()
     sb.max_iter = 5
@@ -417,7 +417,7 @@ def test_a_long_scf_leaves_the_mixer_narrow_for_the_scfs_after_it():
     end as a fresh state's."""
     import torch
 
-    from ksmech.qm.gpu import scf as S
+    from speedchem.gpu import scf as S
 
     sb = _carry_batch()
     econv, sb.max_iter = sb.econv, 40

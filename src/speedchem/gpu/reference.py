@@ -21,7 +21,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from ksmech.qm.gpu.basis import (
+from speedchem.gpu.basis import (
     CGTO,
     N_CART,
     MolBasis,

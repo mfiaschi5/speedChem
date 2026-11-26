@@ -1,6 +1,6 @@
 """GPU xTB stage 2: the torch reference of every GFN2 term beyond the one-electron integrals.
 
-`ksmech.qm.gpu.terms` is checked against tblite at tblite's own converged density: the CN
+`speedchem.gpu.terms` is checked against tblite at tblite's own converged density: the CN
 self-energies against tblite's H0 diagonal, the total energy (band energy, entropy, repulsion,
 D4, ES2, ES3, AES, ALPB, CDS, shift) and the total gradient, in the gas phase and in water.
 tblite's H0 gradient uses the potential of the last SCF input charges, so the gradient is
@@ -14,10 +14,10 @@ from functools import cache
 import numpy as np
 import pytest
 
-from ksmech.qm.geometry import new_calculator
-from ksmech.qm.gpu import terms as T
-from ksmech.qm.gpu.basis import mol_basis
-from tests.test_qm_gpu import CASES, _self_energies
+from speedchem.gpu import terms as T
+from speedchem.gpu.basis import mol_basis
+from tests.helpers import new_calculator
+from tests.test_gpu import CASES, _self_energies
 
 KEYS = ("energy", "gradient", "density-matrix", "orbital-energies", "orbital-occupations",
         "orbital-coefficients", "hamiltonian-matrix", "overlap-matrix")  # fmt: skip
@@ -112,7 +112,7 @@ def test_cutoff_windows_match_tblite(name, solvent):
 
 def element_hydrides() -> dict[int, tuple[np.ndarray, np.ndarray]]:
     """Z-H for Z = 1..86 at 3/4 of the covalent distance: charged atoms in every element."""
-    from ksmech.qm.gpu.basis import params
+    from speedchem.gpu.basis import params
 
     rcov = params()["covalent_rad"]["covalent_rad_d3"]
     return {z: (np.array([z, 1]), np.array([[0.0, 0.0, 0.0],

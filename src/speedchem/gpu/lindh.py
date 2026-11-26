@@ -1,12 +1,12 @@
 """Lindh's model Hessian without Python loops: the same stretch, bend and torsion terms as
-`ksmech.qm.anc.lindh_hessian` (equal to 1e-15), enumerated with array masks, about 20x faster.
+`speedchem.anc.lindh_hessian` (equal to 1e-15), enumerated with array masks, about 20x faster.
 The CPU optimizer keeps its own loops, so its records do not move."""
 
 from __future__ import annotations
 
 import numpy as np
 
-from ksmech.qm.anc import K_BEND, K_STRETCH, K_TORSION, RHO_NEIGHBOUR, RHO_TERM, lindh_rho
+from speedchem.anc import K_BEND, K_STRETCH, K_TORSION, RHO_NEIGHBOUR, RHO_TERM, lindh_rho
 
 
 def _accumulate(h: np.ndarray, atoms: np.ndarray, b: np.ndarray, k: np.ndarray) -> None:
@@ -74,7 +74,7 @@ def _torsions(xyz, rho, nb):
 
 
 def lindh_hessian_fast(z: np.ndarray, xyz: np.ndarray) -> np.ndarray:
-    """Lindh's model Hessian (3n, 3n), as `qm.anc.lindh_hessian`, without Python loops."""
+    """Lindh's model Hessian (3n, 3n), as `speedchem.anc.lindh_hessian`, without Python loops."""
     n = len(z)
     h = np.zeros((3 * n, 3 * n))
     rho = lindh_rho(z, xyz)

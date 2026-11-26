@@ -1,13 +1,13 @@
-"""Stage 4: the batched ANC / RFO geometry optimizer on the GPU, `qm.anc` for many molecules.
+"""The batched ANC / RFO geometry optimizer on the GPU: `speedchem.anc` for many molecules.
 
-Every molecule runs `qm.anc.optimize_anc`'s algorithm with its own state: the Lindh model
+Every molecule runs `speedchem.anc.optimize_anc`'s algorithm with its own state: the Lindh model
 Hessian once at the start, the approximate normal coordinates (ANC) rebuilt every `micro` steps
 from the learned Hessian, RFO steps cut to a trust radius that grows and shrinks as there,
 uphill steps taken back, BFGS updates in the ANC basis, convergence on the largest gradient
 component (walls included). The energies and gradients of all still-running molecules come
 from one batched GFN2 SCF state (`SCFBatch`), each SCF restarted from the molecule's last
-evaluated point and, if that fails, from the guess (as `geometry.TbliteEnergy`). The bond
-walls and the dissociation guard of `geometry` apply per molecule: the guard sees every trial
+evaluated point and, if that fails, from the guess (as rhoMech's tblite-anc does). The bond
+walls and the dissociation guard of `speedchem.bonds` apply per molecule: the guard sees every trial
 geometry, the first included, once, before it is evaluated. With a `carry`, an SCF still
 running when most of its round has ended continues into the next round while the others step
 (`BatchedANC`).
@@ -23,11 +23,13 @@ from dataclasses import dataclass, field
 import numpy as np
 import torch
 
-from ksmech.qm.anc import H_LOW, AncSettings
-from ksmech.qm.geometry import BOHR_ANG
-from ksmech.qm.gpu import scf as S
-from ksmech.qm.gpu.lindh import lindh_hessian_fast
-from ksmech.qm.records import ReasonCode
+from speedchem import bonds
+from speedchem.anc import H_LOW, AncSettings
+from speedchem.gpu import scf as S
+from speedchem.gpu.lindh import lindh_hessian_fast
+from speedchem.reasons import ConnectivityChanged, Reason
+from speedchem.settings import RelaxSettings
+from speedchem.units import BOHR_ANG
 
 F64 = torch.float64
 PAD_CURVATURE = 1.0  # Hartree / Bohr^2 on padded ANC modes: inert, never the RFO's lowest
@@ -72,7 +74,7 @@ class MolState:
 class OptOutcome:
     xyz: np.ndarray  # Bohr, the last accepted point
     converged: bool
-    reason: ReasonCode | None
+    reason: Reason | None
     detail: str
     n_evals: int
     gmax: float
@@ -81,11 +83,11 @@ class OptOutcome:
     trace: list = field(default_factory=list)  # (energy, radius) per step evaluation, traced
 
 
-# --- batched linear algebra of `qm.anc` ------------------------------------------------------
+# --- batched linear algebra of `speedchem.anc` ---------------------------------------------
 
 
 def anc_basis(h_cart: torch.Tensor, xyz: torch.Tensor, real: torch.Tensor):
-    """`qm.anc.anc_basis` for a batch: h_cart (b, P, P), xyz (b, N, 3) padded, real (b, N)
+    """`speedchem.anc.anc_basis` for a batch: h_cart (b, P, P), xyz (b, N, 3) padded, real (b, N)
     bool. Returns vectors (b, P, M) and curvatures (b, M), M = max over the batch of 3n - 6
     (3n - 5 if linear); columns past a molecule's own count are zero, curvature PAD_CURVATURE."""
     b, n = real.shape
@@ -115,7 +117,7 @@ def anc_basis(h_cart: torch.Tensor, xyz: torch.Tensor, real: torch.Tensor):
 
 
 def rfo_step(h: torch.Tensor, g: torch.Tensor, dtype=F64) -> torch.Tensor:
-    """`qm.anc.rfo_step` for a batch: the lowest eigenvector of [[H, g], [g^T, 0]], scaled;
+    """`speedchem.anc.rfo_step` for a batch: the lowest eigenvector of [[H, g], [g^T, 0]], scaled;
     steepest descent -g / max(diag H, H_LOW) where it has no usable last component."""
     b, m = g.shape
     aug = torch.zeros(b, m + 1, m + 1, dtype=F64, device=g.device)
@@ -129,7 +131,7 @@ def rfo_step(h: torch.Tensor, g: torch.Tensor, dtype=F64) -> torch.Tensor:
 
 
 def bfgs(h: torch.Tensor, s: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-    """`qm.anc._bfgs` for a batch: skipped where the curvature condition fails."""
+    """`speedchem.anc._bfgs` for a batch: skipped where the curvature condition fails."""
     sy = (s * y).sum(1)
     hs = (h @ s[:, :, None])[:, :, 0]
     shs = (s * hs).sum(1)
@@ -167,18 +169,17 @@ def _pair_tensors(specs, offsets, which: str):
 
 
 class BatchedANC:
-    """`qm.anc.optimize_anc` (with `geometry.TbliteEnergy`'s restarts, walls and guard) for a
-    batch of molecules on the GPU. `rfo_dtype` float32 runs the RFO eigensolve in fp32.
-
-    The optimization runs in rounds. In each, every running molecule that is not waiting for an
-    evaluation proposes its next trial (stored, and frozen while its evaluation is pending), the
-    guard checks that trial once, its SCF starts from the molecule's last evaluated point, and
-    the batch's SCFs advance; each molecule whose evaluation ended then takes the step's update
-    (accept or reject, BFGS, trust radius, convergence test, basis). `carry` None: a round waits
-    for every SCF, one round per step as `qm.anc` steps. A number c: the round ends once at most
-    c x its running SCFs still run (`SCFBatch.advance`), and those carry their SCF state into the
-    next round beside the SCFs the finished molecules start. Per molecule the computation is the
-    same either way (trial, SCF start, mixer history, convergence rules)."""
+    """`speedchem.anc.optimize_anc` (with tblite-anc's SCF restarts, walls and guard) for a batch of
+    molecules on the GPU. `rfo_dtype` float32 runs the RFO eigensolve in fp32. The optimization
+    runs in rounds. In each, every running molecule that is not waiting for an evaluation proposes
+    its next trial (stored, and frozen while its evaluation is pending), the guard checks that trial
+    once, its SCF starts from the molecule's last evaluated point, and the batch's SCFs advance;
+    each molecule whose evaluation ended then takes the step's update (accept or reject, BFGS, trust
+    radius, convergence test, basis). `carry` None: a round waits for every SCF, one round per step
+    as `speedchem.anc` steps. A number c: the round ends once at most c x its running SCFs still run
+    (`SCFBatch.advance`), and those carry their SCF state into the next round beside the SCFs the
+    finished molecules start. Per molecule the computation is the same either way (trial, SCF start,
+    mixer history, convergence rules)."""
 
     def __init__(
         self,
@@ -262,11 +263,11 @@ class BatchedANC:
     # --- one round: proposals, evaluations started, SCFs advanced, updates ---------------------
 
     def _propose(self, st: dict, which: torch.Tensor) -> None:
-        """The next trial of the molecules `which` (`qm.anc._State.step` up to its evaluation):
-        the RFO step in the ANC basis, cut to the trust radius, its predicted energy change and
-        the trial point, stored per molecule and left unchanged while the evaluation runs. The
-        RFO eigensolve covers only the molecules `which` (one host sync per round): with a carry,
-        the pending and the finished molecules would be solved for nothing; a molecule's step
+        """The next trial of the molecules `which` (`speedchem.anc._State.step` up to its
+        evaluation): the RFO step in the ANC basis, cut to the trust radius, its predicted energy
+        change and the trial point, stored per molecule and left unchanged while the evaluation
+        runs. The RFO eigensolve covers only the molecules `which` (one host sync per round): with a
+        carry, the pending and the finished molecules would be solved for nothing; a molecule's step
         moves with the solve's batch at rounding level only (1e-15)."""
         vecs, h = st["vecs"], st["h"]
         gq = (vecs.transpose(1, 2) @ self._pad(st["g"]).reshape(self.b, -1, 1))[:, :, 0]
@@ -329,8 +330,8 @@ class BatchedANC:
         st["n_evals"] += first.long()
 
     def _apply_step(self, st: dict, done, e_new, g_new, fail) -> None:
-        """The rest of `qm.anc._State.step` for the molecules `done` whose evaluation of their
-        stored trial ended (or the guard stopped): the energy counted, the uphill rejection,
+        """The rest of `speedchem.anc._State.step` for the molecules `done` whose evaluation of
+        their stored trial ended (or the guard stopped): the energy counted, the uphill rejection,
         BFGS, the trust radius, the new point."""
         cfg, vecs, h, s = self.cfg, st["vecs"], st["h"], st["s"]
         st["n_evals"] += done.long()
@@ -395,7 +396,7 @@ class BatchedANC:
     def _rebuild(self, st: dict, new: torch.Tensor, due: torch.Tensor) -> None:
         """New ANC bases: of the molecules `new` from the Lindh model Hessian, of those `due`
         (`micro` steps since their last basis) from the learned Hessian in the old basis:
-        `qm.anc.optimize_anc`'s outer loop."""
+        `speedchem.anc.optimize_anc`'s outer loop."""
         which = new | due
         idx = torch.nonzero(which).squeeze(1)
         if not len(idx):
@@ -559,12 +560,12 @@ class BatchedANC:
         if code == FAIL_GUARD:
             pat = self.specs[m].guard
             ratio = float(self.last_ratio[m])
-            return ReasonCode.CONNECTIVITY_CHANGED, (
+            return Reason.CONNECTIVITY_CHANGED, (
                 f"a bond at {ratio:.2f}x, beyond {pat[2]}x for {pat[3]} steps of the optimization"
             )
         if code == FAIL_SCF:
-            return ReasonCode.SCF_NOT_CONVERGED, "during optimization (GPU SCF, from the guess too)"
-        return ReasonCode.OPT_NOT_CONVERGED, f"max|grad|={gmax:.2e} after {n_evals} energies (ANC)"
+            return Reason.SCF_NOT_CONVERGED, "during optimization (GPU SCF, from the guess too)"
+        return Reason.OPT_NOT_CONVERGED, f"max|grad|={gmax:.2e} after {n_evals} energies (ANC)"
 
 
 # --- production's relax for many molecules, with refill --------------------------------------
@@ -573,7 +574,7 @@ class BatchedANC:
 @dataclass
 class RelaxTask:
     key: str
-    mol: object  # rdkit Mol, prepared and embedded as qm.batch._compute does
+    mol: object  # rdkit Mol with explicit hydrogens, in the atom order of z and start
     z: np.ndarray
     start: np.ndarray  # Bohr
     charge: int
@@ -585,7 +586,7 @@ class RelaxOutcome:
     key: str
     xyz: np.ndarray | None
     restrained: bool
-    reason: ReasonCode | None
+    reason: Reason | None
     detail: str
     n_evals: int  # every energy of both runs, as the reference counts them
     energy: float
@@ -594,26 +595,19 @@ class RelaxOutcome:
 
 
 def _guard_spec(mol, factor: float):
-    from ksmech.qm.geometry import DissociationGuard
-
-    g = DissociationGuard(mol, factor)
+    g = bonds.DissociationGuard(mol, factor)
     return (g.pairs, g.rcov, float(g.factor), int(g.patience))
 
 
 def _wall_spec(mol, wall_factor: float, k: float):
-    from ksmech.qm.geometry import bond_walls
-
-    w = bond_walls(mol, wall_factor, k)
+    w = bonds.bond_walls(mol, wall_factor, k)
     return (w.pairs, w.d0_bohr, float(w.k))
 
 
 def _connectivity(task: RelaxTask, xyz: np.ndarray, factor: float) -> str | None:
-    from ksmech.qm.geometry import check_connectivity
-    from ksmech.qm.records import QMError
-
     try:
-        check_connectivity(task.mol, xyz * BOHR_ANG, factor)
-    except QMError as exc:
+        bonds.check_connectivity(task.mol, xyz * BOHR_ANG, factor)
+    except ConnectivityChanged as exc:
         return exc.detail
     return None
 
@@ -650,19 +644,19 @@ class _Job:
         )
 
     def finish(self, out: OptOutcome) -> RelaxOutcome | None:
-        """The outcome, or None when the walled run is still to come (`qm.xtb_calc._relax`)."""
+        """The outcome, or None when the walled run is still to come (rhoMech's `_relax`)."""
         cfg, broke = self.cfg, None
         if out.converged:
             broke = _connectivity(self.task, out.xyz, cfg.conn_cov_factor)
             if broke is None:
                 return self._done(out, None, "")
-        elif out.reason is not ReasonCode.CONNECTIVITY_CHANGED:
+        elif out.reason is not Reason.CONNECTIVITY_CHANGED:
             return self._done(out, out.reason, out.detail)
         detail = broke or out.detail
         if self.phase == 0 and cfg.restrain:
             self.to_walls(out)
             return None
-        return self._done(out, ReasonCode.CONNECTIVITY_CHANGED, detail)
+        return self._done(out, Reason.CONNECTIVITY_CHANGED, detail)
 
     def _done(self, out: OptOutcome, reason, detail) -> RelaxOutcome:
         ok = reason is None
@@ -684,7 +678,7 @@ CARRY = 0.1  # relax_many's round: done once at most a tenth of its SCFs still r
 
 
 def _nao(z: np.ndarray) -> int:
-    from ksmech.qm.gpu.basis import mol_basis
+    from speedchem.gpu.basis import mol_basis
 
     return mol_basis(np.asarray(z)).nao
 
@@ -693,7 +687,7 @@ def molecule_bytes(z: np.ndarray) -> int:
     """A batch member's peak device memory: ~50 n_ao^2 doubles for the SCF (the padded
     matrices, the eigensolver's workspace and transient copies; measured 47-49 at 21-117 atoms)
     and the optimizer's (3N)^2 Hessians and basis."""
-    from ksmech.qm.gpu.basis import mol_basis
+    from speedchem.gpu.basis import mol_basis
 
     nao, p = mol_basis(np.asarray(z)).nao, 3 * len(z)
     return 8 * (50 * nao * nao + 4 * p * p)
@@ -729,8 +723,9 @@ def relax_many(
     more=None,
     claim=None,
 ) -> list[RelaxOutcome]:
-    """`qm.xtb_calc.GFN2Calculator._relax` with the tblite-anc settings of `config` (a QMConfig)
-    for many molecules: a free run with the dissociation guard, `check_connectivity`, and on a
+    """rhoMech's tblite-anc optimization (`ksmech.qm.xtb_calc.GFN2Calculator._relax`) with the
+    settings `config` (a `RelaxSettings`, or any object with its attributes) for many molecules:
+    a free run with the dissociation guard, `check_connectivity`, and on a
     broken bond a walled run from the start geometry, checked again. The batch holds up to
     `capacity` runs and at most `memory_bytes` (`molecule_bytes` of its largest member times
     its size; default 60% of the device memory free at the start, as another process may hold
@@ -743,11 +738,9 @@ def relax_many(
     not kept, and the result is []. `more(block)`, if given, is asked for further tasks at every
     refill (blocking when nothing else is left to run): a list (they join the queue in size
     order), or None once there will be no more. `claim(key)`, if given, is asked for each task as
-    a batch takes it: False drops the task (work sharing, `qm.gpu_run`: a CPU worker has it), and
+    a batch takes it: False drops the task (work sharing: another worker has it), and
     it has no outcome."""
-    from ksmech.qm.xtb_calc import QMConfig
-
-    config = config or QMConfig(optimizer="tblite-anc")
+    config = config or RelaxSettings()
     if memory_bytes is None:
         torch.cuda.empty_cache()
         memory_bytes = 0.6 * torch.cuda.mem_get_info()[0]

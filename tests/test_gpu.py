@@ -1,6 +1,6 @@
 """GPU xTB stage 1: the GFN2 basis, the numpy reference integrals and the CUDA kernels.
 
-The reference (`ksmech.qm.gpu.reference`) is checked against tblite on the fixture molecules
+The reference (`speedchem.gpu.reference`) is checked against tblite on the fixture molecules
 and two d-shell metal species of the open-shell list (the integrals do not depend on the spin):
 S and H0 against tblite's saved matrices, D and Q through tblite's molecular dipole and
 quadrupole rebuilt from its density. Its gradient contraction is checked by finite differences.
@@ -19,11 +19,11 @@ import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from ksmech.qm.ao import element_ao_l
-from ksmech.qm.geometry import BOHR_ANG, new_calculator
-from ksmech.qm.gpu import reference as ref
-from ksmech.qm.gpu.basis import element_shells, mol_basis
-from tests.fixtures.molecules import MOLECULES, OPEN_SHELL
+from speedchem.gpu import reference as ref
+from speedchem.gpu.basis import element_shells, mol_basis
+from speedchem.units import BOHR_ANG
+from tests.helpers import element_ao_l, new_calculator
+from tests.molecules import MOLECULES, OPEN_SHELL
 
 # hand-placed d-shell metal species (Bohr): linear CuCl2, tetrahedral FeBr4-
 _T = np.array([[1, 1, 1], [1, -1, -1], [-1, 1, -1], [-1, -1, 1]]) / np.sqrt(3.0)
@@ -129,7 +129,7 @@ def _gpu_ready() -> bool:
         import torch
     except ImportError:
         return False
-    from ksmech.qm.gpu import native
+    from speedchem.gpu import native
 
     nvcc = Path(os.environ.get("KSXTB_NVCC", str(native.DEFAULT_NVCC)))
     return torch.cuda.is_available() and (nvcc.exists() or native.LIB.exists())
@@ -143,7 +143,7 @@ gpu = pytest.mark.skipif(not _gpu_ready(), reason="no CUDA device or ksxtb toolc
 def test_cuda_kernels_match_reference():
     import torch
 
-    from ksmech.qm.gpu import native
+    from speedchem.gpu import native
 
     # D, Q and the gradient on every angular class: s/p organics, Cl d shells, Cu and Fe d with
     # Br d (d-d pairs); S and H0 of all ten fixtures are checked against tblite below
@@ -183,7 +183,7 @@ def _device_forward(mols, refs):
     """S and H0 on the GPU with the shell self-energies read from tblite's H0 diagonal."""
     import torch
 
-    from ksmech.qm.gpu import native
+    from speedchem.gpu import native
 
     db = native.DeviceBatch(native.host_batch(mols))
     se = [_self_energies(z, r) for (z, _), r in zip(mols, refs, strict=True)]

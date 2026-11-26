@@ -1,0 +1,19 @@
+speedChem
+Copyright (C) 2026 the speedChem authors
+
+speedChem is free software: you can redistribute it and/or modify it under the terms of the GNU
+Lesser General Public License as published by the Free Software Foundation, either version 3 of
+the License, or (at your option) any later version (COPYING.LESSER, which supplements the GNU
+General Public License, COPYING).
+
+speedchem.gpu reimplements the GFN2-xTB method of tblite (https://github.com/tblite/tblite,
+LGPL-3.0-or-later) and its D4 dispersion from dftd4 (https://github.com/dftd4/dftd4,
+LGPL-3.0-or-later), on mctc-lib (https://github.com/grimme-lab/mctc-lib, Apache-2.0).
+src/speedchem/gpu/gfn2_params.json holds parameter tables extracted from the sources of tblite
+v0.7.0, mctc-lib v0.5.2 and dftd4 v4.2.0 by src/speedchem/gpu/csrc/tools/extract_gfn2.py; the
+copyright of those tables stays with their authors.
+
+GFN2-xTB: C. Bannwarth, S. Ehlert, S. Grimme, J. Chem. Theory Comput. 15 (2019) 1652.
+ALPB: S. Ehlert, M. Stahn, S. Spicher, S. Grimme, J. Chem. Theory Comput. 17 (2021) 4250.
+D4: E. Caldeweyher et al., J. Chem. Phys. 150 (2019) 154122.
+Lindh model Hessian: R. Lindh et al., Chem. Phys. Lett. 241 (1995) 423.

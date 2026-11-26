@@ -1,7 +1,7 @@
 """GPU xTB stage 2: the CUDA kernels of the non-integral GFN2 terms (marker `gpu`).
 
-The kernels (`ksmech.qm.gpu.classical`) are checked against the torch reference
-(`ksmech.qm.gpu.terms`, exact against tblite) at random SCF variables: every term's energy,
+The kernels (`speedchem.gpu.classical`) are checked against the torch reference
+(`speedchem.gpu.terms`, exact against tblite) at random SCF variables: every term's energy,
 the four potentials and the gradient with its CN, multipole-radius, Born-radius and surface
 chains, plus an external dE/dCN. The batch holds the fixtures, the cutoff windows and a long
 alkane chain longer than the D4 (50 Bohr) and Born (66 Bohr) cutoffs and a
@@ -19,11 +19,11 @@ import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from ksmech.qm.geometry import BOHR_ANG
-from ksmech.qm.gpu import terms as T
-from ksmech.qm.gpu.basis import mol_basis
-from tests.test_qm_gpu import CASES, gpu
-from tests.test_qm_gpu_terms import WINDOWS, element_hydrides, spin_occupations, tblite_run
+from speedchem.gpu import terms as T
+from speedchem.gpu.basis import mol_basis
+from speedchem.units import BOHR_ANG
+from tests.test_gpu import CASES, gpu
+from tests.test_gpu_terms import WINDOWS, element_hydrides, spin_occupations, tblite_run
 
 
 @cache
@@ -76,7 +76,7 @@ def torch_reference(z, xyz, v, solvent: bool):
 def test_cuda_terms_match_reference(solvent):
     import torch
 
-    from ksmech.qm.gpu import classical as K
+    from speedchem.gpu import classical as K
 
     mols = batch_molecules()
     rng = np.random.default_rng(5)
@@ -105,7 +105,7 @@ def test_cuda_terms_match_reference(solvent):
 @gpu
 @pytest.mark.parametrize("solvent", [None, "water"])
 def test_cuda_total_matches_tblite(solvent):
-    from ksmech.qm.gpu import classical as K
+    from speedchem.gpu import classical as K
 
     names = list(CASES)
     runs = [tblite_run(n, solvent, 1e-6) for n in names]
@@ -128,7 +128,7 @@ def test_cuda_light_evaluation_matches_full(solvent):
     """The SCF's evaluation without gradient gives the same energies and potentials."""
     import torch
 
-    from ksmech.qm.gpu import classical as K
+    from speedchem.gpu import classical as K
 
     mols = batch_molecules()
     rng = np.random.default_rng(6)

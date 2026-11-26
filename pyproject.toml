@@ -1,0 +1,47 @@
+[project]
+name = "speedchem"
+version = "0.1.0"
+description = "Fast geometry optimization for semiempirical quantum chemistry: ANC/RFO optimization, and GFN2-xTB with ALPB water batched on CUDA."
+readme = "README.md"
+license = "LGPL-3.0-or-later"
+license-files = ["COPYING", "COPYING.LESSER", "NOTICE"]
+requires-python = ">=3.11"
+dependencies = ["numpy", "rdkit", "scipy"]
+
+[project.optional-dependencies]
+# speedchem.gpu: the caller brings its own torch build (rhoMech picks CUDA or ROCm by group)
+gpu = ["torch"]
+
+[dependency-groups]
+dev = ["pytest", "pytest-xdist", "ruff", "tblite==0.7.0", "torch==2.14.1"]
+
+[tool.uv]
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[build-system]
+requires = ["uv_build>=0.12.16,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "NPY"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+    "gpu: CUDA kernels of speedchem.gpu, skipped without a device or the nvcc toolchain",
+    "slow: runs GFN2 geometry optimizations",
+]

@@ -4,7 +4,7 @@
  * All arrays are device pointers. A batch packs many molecules: atoms, shells and AO matrices
  * are concatenated, each molecule's nao x nao matrices stored row-major at `mol_mat[m]`
  * (multi-component matrices at `ncomp * mol_mat[m]`, component-major). Conventions follow
- * tblite 0.7.0 and `ksmech.qm.gpu.reference`. Every entry point returns a cudaError_t code. */
+ * tblite 0.7.0 and `speedchem.gpu.reference`. Every entry point returns a cudaError_t code. */
 #ifndef KSXTB_H
 #define KSXTB_H
 
@@ -73,7 +73,7 @@ int ksxtb_h0_gradient(const KsBatch* b, const KsPairs* lists, int nlists, const 
 
 /* ---- stage 2: the GFN2 terms beyond the one-electron integrals (classical.cu) ----------------
  * Repulsion, ES2, ES3, AES, D4 (two-body with the SCF charges, ATM with zero charges), ALPB
- * and CDS of a batch, as `ksmech.qm.gpu.terms` writes them. Per-atom parameters sit in two
+ * and CDS of a batch, as `speedchem.gpu.terms` writes them. Per-atom parameters sit in two
  * row-major tables, atab[nat * KA_COLS] and itab[nat * KI_COLS]. The pair list holds every
  * pair i > j of each molecule in the order (i_loc = 1..n-1, j_loc = 0..i_loc-1) from
  * mol_pair0[m], so the pair index of (i, j) is mol_pair0[m] + i_loc (i_loc - 1) / 2 + j_loc. */

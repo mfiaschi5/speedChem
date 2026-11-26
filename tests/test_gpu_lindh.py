@@ -1,13 +1,13 @@
-"""The vectorized Lindh model Hessian of the GPU optimizer against `qm.anc.lindh_hessian`."""
+"""The vectorized Lindh model Hessian of the GPU optimizer against `speedchem.anc.lindh_hessian`."""
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from ksmech.qm.anc import lindh_hessian
-from ksmech.qm.gpu.lindh import lindh_hessian_fast
-from tests.test_qm_gpu import CASES
+from speedchem.anc import lindh_hessian
+from speedchem.gpu.lindh import lindh_hessian_fast
+from tests.test_gpu import CASES
 
 LINEAR = {  # near-linear and linear angles: the bend and torsion cut-offs
     "acetylene_like": (np.array([6, 6, 1, 1]),

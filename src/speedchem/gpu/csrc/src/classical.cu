@@ -3,7 +3,7 @@
 // Repulsion, ES2 (shell-resolved), ES3, AES (damped multipoles with CN-dependent radii), D4
 // (two-body with the SCF charges, ATM with zero-charge C6), ALPB (P16 Born kernel and the
 // shape term) and CDS (smoothed SASA on the 230-point Lebedev grid), following tblite 0.7.0 as
-// `ksmech.qm.gpu.terms` writes it. All in fp64.
+// `speedchem.gpu.terms` writes it. All in fp64.
 //
 // No derivative tensor is stored. Each pass accumulates per-atom adjoints (dE/dCN of both CNs,
 // dE/dmultipole radius, dE/dBorn radius) with atomics; one chain pass over the pairs turns

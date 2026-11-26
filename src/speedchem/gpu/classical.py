@@ -1,10 +1,10 @@
 """Stage 2 on the GPU: the GFN2 terms beyond the one-electron integrals for a batch.
 
 `ClassicalBatch` packs the per-atom parameter tables, the pair lists and the D4 reference C6 of
-a batch (`native/ksxtb/src/classical.cu`, layouts in `ksxtb.h`); `geometry()` computes the
+a batch (`csrc/src/classical.cu`, layouts in `ksxtb.h`); `geometry()` computes the
 coordination numbers, multipole radii and Born radii of the current geometry, `evaluate()` the
 energies, potentials and gradient at given SCF variables. The values follow
-`ksmech.qm.gpu.terms`, which is exact against tblite.
+`speedchem.gpu.terms`, which is exact against tblite.
 """
 
 from __future__ import annotations
@@ -16,9 +16,9 @@ from functools import cache
 import numpy as np
 import torch
 
-from ksmech.qm.gpu import native
-from ksmech.qm.gpu import terms as T
-from ksmech.qm.gpu.basis import mol_basis, params, scalar
+from speedchem.gpu import native
+from speedchem.gpu import terms as T
+from speedchem.gpu.basis import mol_basis, params, scalar
 
 HEADER = native.ROOT / "include" / "ksxtb.h"
 P = C.c_void_p

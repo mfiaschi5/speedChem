@@ -1,7 +1,7 @@
 """GPU xTB stage 4: the batched ANC / RFO optimizer (marker `gpu`).
 
-Its linear algebra (`anc_basis`, `rfo_step`, `bfgs`) is checked against `qm.anc`'s on padded
-mixed batches; the optimizer itself against `qm.anc.optimize_anc` driven by the same GPU
+Its linear algebra (`anc_basis`, `rfo_step`, `bfgs`) is checked against `speedchem.anc`'s on padded
+mixed batches; the optimizer itself against `speedchem.anc.optimize_anc` driven by the same GPU
 energy, step by step (scripts/gpu_xtb/stage4_gate.py runs the production comparison).
 """
 
@@ -10,9 +10,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ksmech.qm import anc
-from tests.test_qm_gpu import CASES, gpu
-from tests.test_qm_gpu_lindh import LINEAR
+from speedchem import anc
+from tests.test_gpu import CASES, gpu
+from tests.test_gpu_lindh import LINEAR
 
 
 @pytest.mark.gpu
@@ -20,7 +20,7 @@ from tests.test_qm_gpu_lindh import LINEAR
 def test_batched_anc_basis_matches_qm_anc():
     import torch
 
-    from ksmech.qm.gpu import optimize as O
+    from speedchem.gpu import optimize as O
 
     mols = [CASES[k][:2] for k in ("ethane", "benzene", "acetonitrile")] + [LINEAR["co2"]]
     nmax = max(len(z) for z, _ in mols)
@@ -47,7 +47,7 @@ def test_batched_anc_basis_matches_qm_anc():
 def test_batched_rfo_and_bfgs_match_qm_anc():
     import torch
 
-    from ksmech.qm.gpu import optimize as O
+    from speedchem.gpu import optimize as O
 
     rng = np.random.default_rng(0)
     sizes, mmax = (7, 12, 4), 12
@@ -73,10 +73,10 @@ def test_batched_rfo_and_bfgs_match_qm_anc():
 
 
 def _task(name: str, key: str | None = None):
-    from ksmech.qm.embed import embed, prepare_mol
-    from ksmech.qm.geometry import BOHR_ANG
-    from ksmech.qm.gpu import optimize as O
-    from tests.fixtures.molecules import MOLECULES
+    from speedchem.gpu import optimize as O
+    from speedchem.units import BOHR_ANG
+    from tests.helpers import embed, prepare_mol
+    from tests.molecules import MOLECULES
 
     mol = prepare_mol(MOLECULES[name])
     cid = embed(mol, 1, seed=0)[0]
@@ -90,14 +90,14 @@ def _task(name: str, key: str | None = None):
 def test_relax_many_converges_and_runs_the_walled_retry():
     """acetone and ethanol relax to fmax; with every bond counted broken (conn_cov_factor
     0.5) the guard stops the free run, the walled run follows, and the bonds still read broken:
-    CONNECTIVITY_CHANGED after both runs' energies, as qm.xtb_calc._relax would end."""
-    from ksmech.qm.gpu import optimize as O
-    from ksmech.qm.xtb_calc import QMConfig
+    CONNECTIVITY_CHANGED after both runs' energies, as rhoMech's tblite-anc would end."""
+    from speedchem.gpu import optimize as O
+    from speedchem.settings import RelaxSettings
 
     tasks = [_task("acetone"), _task("ethanol")]
     out = O.relax_many(tasks)
     assert all(o.reason is None and o.gmax <= 3e-4 and not o.restrained for o in out)
-    broken = O.relax_many([_task("ethane")], QMConfig(optimizer="tblite-anc", conn_cov_factor=0.5))
+    broken = O.relax_many([_task("ethane")], RelaxSettings(conn_cov_factor=0.5))
     assert broken[0].reason.value == "CONNECTIVITY_CHANGED"
     assert broken[0].n_evals > 5  # the guard's patience, then the walled run
 
@@ -107,8 +107,8 @@ def test_relax_many_converges_and_runs_the_walled_retry():
 def test_a_resumed_optimization_reaches_the_same_minimum():
     """Stopped in one batch and resumed in another, a run lands where it lands alone (the
     padded fp32 SCF cycles differ with the batch: noise, not a different minimum)."""
-    from ksmech.qm.embed import kabsch_rmsd
-    from ksmech.qm.gpu import optimize as O
+    from speedchem.gpu import optimize as O
+    from tests.helpers import kabsch_rmsd
 
     tasks = [_task(n) for n in ("acetone", "methyl_acetate", "acrolein")]
     specs = [O.OptSpec(t.z, t.start, 0, 0) for t in tasks]
@@ -128,11 +128,11 @@ def test_a_resumed_optimization_reaches_the_same_minimum():
 
 
 class _GpuEnergy:
-    """One molecule's GPU energy and gradient for `qm.anc.optimize_anc`, each SCF restarted
+    """One molecule's GPU energy and gradient for `speedchem.anc.optimize_anc`, each SCF restarted
     from the last converged point (stage4_gate.py's `GpuObjective`)."""
 
     def __init__(self, z, x0) -> None:
-        from ksmech.qm.gpu import scf as S
+        from speedchem.gpu import scf as S
 
         self.sb, self.start, self.log = S.SCFBatch([(z, x0, 0, 0)], True), None, []
 
@@ -154,7 +154,7 @@ def test_carry_none_reproduces_qm_anc_driven_by_the_gpu_energy():
     """Without a carry, one round is one step: every evaluation's energy is the CPU
     optimizer's on the same GPU energy (to rounding), and so are the energy count and the end;
     the per-molecule trace holds every step evaluation (the start's excluded)."""
-    from ksmech.qm.gpu import optimize as O
+    from speedchem.gpu import optimize as O
 
     for name in ("methyl_acetate", "acrolein"):
         t = _task(name)
@@ -171,7 +171,7 @@ def test_carry_none_reproduces_qm_anc_driven_by_the_gpu_energy():
 
 
 def _carry_specs(names):
-    from ksmech.qm.gpu import optimize as O
+    from speedchem.gpu import optimize as O
 
     return [O.OptSpec(t.z, t.start, 0, 0) for t in (_task(n) for n in names)]
 
@@ -186,7 +186,7 @@ def test_carry_over_reaches_the_same_minima_with_the_same_counts():
     to 1e-6 Eh in the fp32 orbital energies), which can move an SCF's last cycle within its
     1e-6 Eh convergence threshold: energies agree to far below 1e-6 Eh (measured 7e-11), and a
     count may move by a step where such noise tips an accept/reject."""
-    from ksmech.qm.gpu import optimize as O
+    from speedchem.gpu import optimize as O
 
     names = ("ethane", "acetone", "benzene", "acrolein", "methyl_acetate", "acetonitrile")
     ref_opt = O.BatchedANC(_carry_specs(names))
@@ -210,7 +210,7 @@ def test_the_guard_counts_a_waiting_trial_once():
     """Every bond counts broken (factor 0.5), patience 5: the guard stops the run at its 5th
     trial (the start included), carry or not. With carry 1 each evaluation waits several
     rounds; a guard that counted a waiting trial each round would stop after one energy."""
-    from ksmech.qm.gpu import optimize as O
+    from speedchem.gpu import optimize as O
 
     t = _task("ethanol")
     guard = O._guard_spec(t.mol, 0.5)
@@ -239,7 +239,7 @@ def test_a_refill_stop_finishes_the_evaluations_in_flight():
     them to their end and takes their steps: resumed in another batch, every molecule ends
     where the uninterrupted batch ends, with the same energy count (to the batch-composition
     noise of the resume test above)."""
-    from ksmech.qm.gpu import optimize as O
+    from speedchem.gpu import optimize as O
 
     names = ("acetone", "methyl_acetate", "acrolein")
     whole = O.BatchedANC(_carry_specs(names), carry=1.0).run()
@@ -265,7 +265,7 @@ def test_a_guard_stopped_trial_traces_no_energy():
     not, also when another molecule's evaluation ends in the same round (methyl acetate and
     acrolein still step at ethanol's 5th trial) and the carried SCF state still holds ethanol's
     previous energy."""
-    from ksmech.qm.gpu import optimize as O
+    from speedchem.gpu import optimize as O
 
     t = _task("ethanol")
     guard = O._guard_spec(t.mol, 0.5)
@@ -286,7 +286,7 @@ def test_a_failed_first_evaluation_does_not_fall_back_to_the_same_guess():
     """A first evaluation starts from the SAD guess: when it fails there is nothing to fall back
     to (`TbliteEnergy` re-raises without a previous result), so it fails after one SCF, with no
     fresh start counted."""
-    from ksmech.qm.gpu import optimize as O
+    from speedchem.gpu import optimize as O
 
     opt = O.BatchedANC(_carry_specs(("acetone", "benzene")))
     opt.sb.econv, opt.sb.max_iter = 0.0, 6  # no SCF converges

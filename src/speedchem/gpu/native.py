@@ -1,9 +1,12 @@
 """The ksxtb CUDA library: build, load, and a batch of molecules on the device.
 
-The library is compiled on first use (or when a source is newer) with the nvcc of
-`KSXTB_NVCC`, default the CUDA 13.3 wheel toolchain under ~/.local/share/ksxtb (CUDA 13.0's
-headers clash with glibc 2.42, docs/decisions.md 2026-11-22). Device memory is held in torch
-tensors; the C entry points take their raw pointers and torch's current stream.
+The library is compiled on first use (or when a source is newer) from the sources under
+`csrc/`, with the nvcc of `KSXTB_NVCC`, default the CUDA 13.3 wheel toolchain under
+~/.local/share/ksxtb (CUDA 13.0's headers clash with glibc 2.42, rhoMech's docs/decisions.md,
+2026-11-22), for the GPU architecture of `KSXTB_ARCH` (default sm_89), into
+`SPEEDCHEM_BUILD_DIR` (default ~/.cache/speedchem): an installed package may be read-only.
+Device memory is held in torch tensors; the C entry points take their raw pointers and torch's
+current stream.
 """
 
 from __future__ import annotations
@@ -18,16 +21,18 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from ksmech.qm.gpu.basis import element_shells, mol_basis, pair_cutoff, params
-from ksmech.qm.gpu.reference import h0_params
+from speedchem.gpu.basis import element_shells, mol_basis, pair_cutoff, params
+from speedchem.gpu.reference import h0_params
 
-ROOT = Path(__file__).resolve().parents[4] / "native" / "ksxtb"
-LIB = ROOT / "build" / "libksxtb.so"
+ROOT = Path(__file__).resolve().parent / "csrc"
+BUILD_DIR = Path(os.environ.get("SPEEDCHEM_BUILD_DIR", Path.home() / ".cache" / "speedchem"))
+LIB = BUILD_DIR / "libksxtb.so"
 DEFAULT_NVCC = (
     Path.home() / ".local/share/ksxtb/tc13x/lib/python3.11/site-packages/nvidia/cu13/bin/nvcc"
 )
 NVCC_FLAGS = (
-    "-O3", "-arch=sm_89", "-std=c++17", "-shared", "-Xcompiler", "-fPIC", "-lineinfo",
+    "-O3", f"-arch={os.environ.get('KSXTB_ARCH', 'sm_89')}", "-std=c++17", "-shared",
+    "-Xcompiler", "-fPIC", "-lineinfo",
     "-allow-unsupported-compiler",  # gcc 16 on this host; the checks against tblite cover it
 )  # fmt: skip
 

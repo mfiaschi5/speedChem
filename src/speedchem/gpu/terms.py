@@ -31,7 +31,7 @@ import numpy as np
 import torch
 from scipy.integrate import lebedev_rule
 
-from ksmech.qm.gpu.basis import MolBasis, params, scalar
+from speedchem.gpu.basis import MolBasis, params, scalar
 
 F64 = torch.float64
 AATOAU = 1.0 / 0.529177210903
@@ -550,7 +550,7 @@ def _leaves(sv: SCFVariables) -> dict:
 
 def total_energy(basis, xyz, density, focc_spins, solvent: bool) -> tuple[float, dict]:
     """tblite's total energy of a density: band energy + entropy + every other term."""
-    from ksmech.qm.gpu import reference as ref
+    from speedchem.gpu import reference as ref
 
     xt = _tensor(xyz)
     se = selfenergies(basis, cn_dexp(basis.z, xt)).numpy()
@@ -566,7 +566,7 @@ def total_gradient(basis, xyz, density, wdensity, solvent: bool) -> np.ndarray:
     """dE/dR (nat, 3) at a converged density: every term at fixed SCF variables, plus the H0,
     overlap and multipole-integral derivatives contracted with the potentials (stage 1's
     `h0_gradient`), plus dE/dCN of the self-energies through the CN."""
-    from ksmech.qm.gpu import reference as ref
+    from speedchem.gpu import reference as ref
 
     xt = _tensor(xyz).requires_grad_()
     se_t = selfenergies(basis, cn_dexp(basis.z, xt.detach()))

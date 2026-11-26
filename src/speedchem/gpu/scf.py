@@ -24,8 +24,8 @@ is only declared after two such cycles, so the energy test compares fp64 energie
 one fp32 eigensolve for all its active molecules; for the precise ones the occupied orbitals are
 then refined in fp64 (`refine_occupied`, Ogita-Aishima restricted to pairs of different
 occupation), an fp64 eigensolve only where the refinement is ill-conditioned (fixed cost per
-call: 4 ms in fp64, docs/decisions.md 2026-11-23). The Fock build, the Mulliken sums and the
-Fermi filling are fused kernels (native/ksxtb/src/scf.cu).
+call: 4 ms in fp64, rhoMech's docs/decisions.md, 2026-11-23). The Fock build, the Mulliken
+sums and the Fermi filling are fused kernels (csrc/src/scf.cu).
 """
 
 from __future__ import annotations
@@ -38,10 +38,10 @@ from functools import cache
 import numpy as np
 import torch
 
-from ksmech.qm.gpu import classical as K
-from ksmech.qm.gpu import native
-from ksmech.qm.gpu import terms as T
-from ksmech.qm.gpu.basis import mol_basis
+from speedchem.gpu import classical as K
+from speedchem.gpu import native
+from speedchem.gpu import terms as T
+from speedchem.gpu.basis import mol_basis
 
 PAD_LEVEL = 5.0  # Hartree; a padded AO's orbital energy
 F64 = torch.float64
